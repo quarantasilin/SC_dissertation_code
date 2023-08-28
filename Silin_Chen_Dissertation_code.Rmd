@@ -1,0 +1,1266 @@
+---
+title: "Kaggle_Superstore_Data"
+output: pdf_document
+date: "2023-07-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data<-read.csv("/Users/chensilin/Desktop/Dissertation/superstore_data.csv")
+```
+
+```{r}
+# View the structure of the data
+str(data)
+
+# Display the first few rows of the data
+head(data)
+
+# Provide statistical summary
+summary(data)
+
+# Check the dimensions (number of rows and columns)
+dim(data)
+
+# Check for missing values
+sum(is.na(data))
+
+
+# Impute missing values. Here, we replace NA with the median of the column
+for(i in 1:ncol(data)) {
+  data[is.na(data[,i]), i] <- median(data[,i], na.rm = TRUE)
+}
+
+summary(data)
+
+```
+We can drop the column - Id as it is unique for each customer and will not add value to the model. Dt_customer is not valueble to our model as well.
+```{r}
+data <- subset(data, select = -Id)
+data <- subset(data, select = -Dt_Customer)
+```
+
+In education, 2n cycle and Master means the same thing. We can combine these two categories.
+There are many categories in marital status. We can combine the categories 'Alone', 'Absurd' and 'YOLO' with 'Single' and 'Together' categories with 'Married'.
+```{r}
+data$Education <- ifelse(data$Education %in% c("2n Cycle"), "Master", data$Education)
+data$Marital_Status <- ifelse(data$Marital_Status %in% c('Alone', 'Absurd', 'YOLO'), "Single", data$Marital_Status)
+data$Marital_Status <- ifelse(data$Marital_Status %in% c('Together'), "Married", data$Marital_Status)
+```
+
+
+We can create a new column of total money spend last 2 years to see more patterns.
+```{r}
+data$Total_spent <- data$MntWines + data$MntFruits+ data$MntMeatProducts+ data$MntFishProducts+ data$MntSweetProducts+ data$MntGoldProds
+
+```
+
+
+Check if any duplicated observations and remove them
+```{r}
+data <- subset(data, !duplicated(data))
+```
+
+
+**Visualize the data**
+
+*Correlation Chart*
+```{r}
+library(corrplot)
+library(dplyr)
+numeric_data <- data %>% select_if(is.numeric)
+corr <- cor(numeric_data, use="pairwise.complete.obs") # Compute correlations
+corrplot(corr, method="circle") # Plot correlation matrix
+```
+We can see MntWines and MntMeatProducts variables has correlations above 0.6, to prevent instability and overfitting, we drop those two variables.
+
+
+```{r}
+data <- subset(data, select = -c(MntWines, MntMeatProducts))
+```
+
+
+```{r}
+# Histogram of Response variable
+library(ggplot2)
+ggplot(data, aes(x=Response)) + 
+  geom_histogram(binwidth=0.5, fill="lightblue", color="white") +
+    geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(x = "Response", y = "Count") + 
+  scale_x_continuous(breaks = c(0, 1), labels = c("Not Accepted", "Accepted")) +  # Customize x-axis labels
+  theme_minimal()
+```
+Barplot:
+Generally, a lot more people declined the offer instead of buying the membership.
+Target variable is imbalanced with 0 as majority class, 1 minor class. Change the evaluation or oversampling minor class might benefit the accuracy.
+
+*Year_Birth*
+```{r}
+# Density plot of numerical variables(looking for well-separated ones)
+ggplot(data, aes(x = Year_Birth, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Year_Birth", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+```
+Density plot:
+People born before 1950 pay for the gold membership more than decline the offer. And among people born between 1950 and 1980, the distributions of two classes are similar with higher density of 0. For people born after 1980, the density of 1 is higher, meaning more people accept the deal.
+
+There are several ages before 1900, which is strange, we remove them.
+```{r}
+data <- data %>% filter(Year_Birth > 1900)
+```
+
+*Income*
+```{r}
+Income_hist <- ggplot(data, aes(x=Income)) + 
+  geom_histogram(fill="lightblue", color="white")
+
+ggplot(data, aes(x =Response  , y = Income)) +
+  geom_boxplot() +
+  labs(title = "Box Plot of Income")
+
+```
+
+Boxplot shows outliers occur.
+
+```{r}
+subset_data <- subset(data, Income > 200000)
+subset_data
+```
+
+The number seems like a false entry based on domain knowledge so we can remove it.
+
+```{r}
+data <- data %>% filter(Income <= 100000)
+```
+
+Then plot density plot
+```{r}
+ggplot(data, aes(x = Income, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Income", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  scale_x_continuous(labels = scales::number_format(scale = 1e0))+
+  theme_minimal()
+```
+Density plot:
+Classes are partially overlapped. Before the intercept of income 70k, more people not buy the membership. After the intercept, there is great amount of people accept the offer.
+The density plot suggest Income might have predictive power. 
+
+
+*Kidhome & Teenhome*
+```{r}
+Kid_box <- boxplot(data$Kidhome)
+ggplot(data, aes(x=Kidhome)) + 
+  geom_histogram(fill="lightblue", color="white")
+ggplot(data, aes(x = Kidhome, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Kidhome", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+
+
+boxplot(data$Teenhome)
+ggplot(data, aes(x = Teenhome, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Teenhome", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+
+
+```
+The density curves overlap partially, kidhome and teenhome can be a weak indicator. And they have similar distribution.
+No extreme values.
+
+*Recency*
+```{r}
+ggplot(data, aes(x = Recency, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Recency", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  labs(title = "Density plot of Recency across Response Variable") +
+  theme_minimal()
+
+boxplot(data$Recency)
+
+histogram(data$Recency)
+```
+The density curves overlap partially, there might be some overlap between the distributions of x for the two classes. Recency may still have some predictive power, but it might not be as strong as when there is a complete separation.
+No observed outliers.
+
+*Amount of foods*
+```{r}
+
+ggplot(data, aes(x = MntFruits, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "MntFruits", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = MntFishProducts, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "MntFishProducts", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = MntSweetProducts, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "MntSweetProducts", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = MntGoldProds, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "MntGoldProds", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = Total_spent, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Total_spent", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  labs(title = "Density plot of Total_spent across Response Variable") +
+  
+  theme_minimal()
+
+boxplot(data$Total_spent)
+boxplot(data$Income)
+
+
+```
+Though for each food type, the density plots are skewed to the right. But the plot of Total spent is not skewed. We can tell more money spent, more inclined that people will give a positive answer.
+
+*Different ways of purchases*
+```{r}
+par(mfrow=c(1,5))
+
+histogram(data$NumDealsPurchases)
+ggplot(data, aes(x = NumDealsPurchases, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "NumDealsPurchases", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = NumWebPurchases, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "NumWebPurchases", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = NumCatalogPurchases, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "NumCatalogPurchases", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+ggplot(data, aes(x = NumStorePurchases, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "NumStorePurchases", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+
+ggplot(data, aes(x = NumWebVisitsMonth, fill = factor(Response))) +
+  geom_density(alpha = 0.5) +
+  labs(x = "NumWebVisitsMonth", y = "Density") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("0", "1")) +
+  theme_minimal()
+
+
+```
+The density plots show that they might not be good predictors alone.
+
+
+```{r}
+# Bar plot for a categorical variable
+ggplot(data, aes(x=Education)) +
+  geom_bar(fill="lightblue") +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(title = "Bar plot of Education across Response Variable") +
+  facet_grid(. ~ Response)
+
+ggplot(data, aes(x=Marital_Status)) +
+  geom_bar(fill="lightpink") +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(title = "Bar plot of Marital_Status across Response Variable") +
+  facet_grid(. ~ Response)
+
+ggplot(data, aes(x=Complain)) +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  geom_bar(fill="lightyellow") 
+
+
+```
+Education:
+More people with graduation degree tends to say no to the sales.
+
+Marital:
+More people with Married status tends to say no to the sales.
+
+Complain:
+Only 20 complains in last 2 year, suggesting the superstore's service is good.
+
+The data is very imbalanced, hard to find a pattern.
+
+No normalize numerical variables necessary for Logistic Regression
+
+
+*Label Encoding*
+And we encode the categorical variable into dummy number.
+```{r}
+# Convert the 'Education' variable to factor type and then to numeric using one-hot encoding
+data$Education <- as.factor(data$Education)
+data$Marital_Status <- as.factor(data$Marital_Status)
+library(fastDummies)
+data <- model.matrix(~.-1, data) # the '-1' removes the intercept term
+
+```
+I used one-hot encoding and it automatically lose one level of the factor Marital_status.
+
+
+**Feature Selection**
+The goal of feature selection is to identify and select the most useful features that can help improve the performance of your model. It can also help to reduce overfitting, improve accuracy, and reduce training time.
+
+
+Recursive Feature Elimination:
+```{r, eval = FALSE}
+# using chi-square test for feature selection
+library(caret)
+set.seed(123)
+# Get the names of numeric columns
+numeric_cols <- names(data)[sapply(data, is.numeric)]
+# Subset the data using these names
+dataSubset <- data[, numeric_cols]
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+results <- rfe(Response ~ ., data = data, sizes = c(1:5), rfeControl = control)
+print(results)
+write.csv(results, file ="Feature_selection.csv")
+
+```
+Now we have top 5 variables(Total_spent, Income, Recency, MntGoldProds, NumStorePurchases)
+
+**Model building**
+
+Splitting the dataset:
+```{r}
+
+library(caTools)
+set.seed(123)
+
+# Split the data
+data <- as.data.frame(data)
+data$Response <- as.factor(data$Response)
+split = sample.split(data$Response, SplitRatio = 0.8)
+training_set = subset(data, split == TRUE)
+test_set = subset(data, split == FALSE)
+
+```
+
+Build the model:
+```{r}
+
+
+library(tidymodels)
+
+# Train a logistic regression model
+logistic_model <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = training_set, family = binomial())
+
+# Model summary
+tidy(logistic_model)
+
+# Capture the summary output
+summary_output <- capture.output(summary(logistic_model))
+
+# Specify the file path for saving the summary
+output_file <- "logistic_model_summary.txt"
+```
+
+
+Evaluate the model
+
+```{r}
+
+predicted_values_full <- predict(logistic_model, newdata = test_set, type = "response")
+predicted_classes_full <- ifelse(predicted_values_full > 0.5, 1, 0)
+
+confusion_matrix_full <- table(predicted_classes_full, test_set$Response)
+TP_full <- confusion_matrix_full[2, 2]
+FP_full <- confusion_matrix_full[2, 1]
+FN_full <- confusion_matrix_full[1, 2]
+
+recall_full <- TP_full / (TP_full + FN_full)
+precision_full <- TP_full / (TP_full + FP_full)
+precision_full
+f1_score_full <- 2 * (precision_full * recall_full) / (precision_full + recall_full)
+f1_score_full
+
+roc_full <- roc(test_set$Response, predicted_values_full)
+
+data <- training_set
+```
+```{r}
+residuals <- residuals(logistic_model)
+plot(predict(logistic_model), residuals)
+
+exp(coef(logistic_model))
+
+write.csv(data, "cleaned_superstore.csv")
+
+
+```
+
+
+**Investigating Big Data Paradox**
+
+*Assess if the dataset is imbalanced*
+```{r}
+table(data$Response)/nrow(data)
+```
+
+
+It is imbalanced.
+
+I will apply random sampling with 10% of data and increasing by increments of 10%, which would give 10 iterations.Same thing with non random sampling (stratified sampling)
+
+
+**stratified sampling**
+```{r}
+## Stratified 1%
+
+data_strata1 <- subset(data, Response == 0)
+data_strata2 <- subset(data, Response == 1)
+
+set.seed(123) # For reproducibility
+
+
+## Stratified 1%
+
+set.seed(123) # For reproducibility
+
+# Randomly sample from strata1
+sample1_20 <- data_strata1[sample(nrow(data_strata1), size = round(nrow(data) * 0.010* 0.8)), ]
+
+# Randomly sample from strata2
+sample2_20 <- data_strata2[sample(nrow(data_strata2), size = round(nrow(data) * 0.010* 0.2)), ]
+
+strata_sample_20 <- rbind(sample1_20, sample2_20)
+
+# Build model
+
+lr_strata_20 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = strata_sample_20, family = binomial())
+
+predicted_values_20 <- predict(lr_strata_20, newdata = test_set, type = "response")
+predicted_classes_20 <- ifelse(predicted_values_20 > 0.5, 1, 0)
+
+confusion_matrix_20 <- table(predicted_classes_20, test_set$Response)
+TP_20 <- confusion_matrix_20[2, 2]
+FP_20 <- confusion_matrix_20[2, 1]
+FN_20 <- confusion_matrix_20[1, 2]
+
+recall_20 <- TP_20 / (TP_20 + FN_20)
+precision_20 <- TP_20 / (TP_20 + FP_20)
+precision_20
+f1_score_20 <- 2 * (precision_20 * recall_20) / (precision_20 + recall_20)
+f1_score_20
+roc_strata_20 <- roc(test_set$Response, predicted_values_20 )
+
+
+## Stratified 2%
+
+set.seed(123) # For reproducibility
+
+# Randomly sample from strata1
+sample1_40 <- data_strata1[sample(nrow(data_strata1), size = round(nrow(data) * 0.020* 0.8)), ]
+
+# Randomly sample from strata2
+sample2_40 <- data_strata2[sample(nrow(data_strata2), size = round(nrow(data) * 0.020* 0.2)), ]
+
+strata_sample_40 <- rbind(sample1_40, sample2_40)
+
+# Build model
+
+lr_strata_40 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = strata_sample_40, family = binomial())
+
+predicted_values_40 <- predict(lr_strata_40, newdata = test_set, type = "response")
+predicted_classes_40 <- ifelse(predicted_values_40 > 0.5, 1, 0)
+
+confusion_matrix_40 <- table(predicted_classes_40, test_set$Response)
+TP_40 <- confusion_matrix_40[2, 2]
+FP_40 <- confusion_matrix_40[2, 1]
+FN_40 <- confusion_matrix_40[1, 2]
+
+recall_40 <- TP_40 / (TP_40 + FN_40)
+precision_40 <- TP_40 / (TP_40 + FP_40)
+precision_40
+f1_score_40 <- 2 * (precision_40 * recall_40) / (precision_40 + recall_40)
+f1_score_40
+roc_strata_40 <- roc(test_set$Response, predicted_values_40 )
+
+
+## Stratified 5%
+
+set.seed(123) # For reproducibility
+
+# Randomly sample from strata1
+sample1_60 <- data_strata1[sample(nrow(data_strata1), size = round(nrow(data) * 0.050* 0.8)), ]
+
+# Randomly sample from strata2
+sample2_60 <- data_strata2[sample(nrow(data_strata2), size = round(nrow(data) * 0.050* 0.2)), ]
+
+strata_sample_60 <- rbind(sample1_60, sample2_60)
+
+# Build model
+
+lr_strata_60 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = strata_sample_60, family = binomial())
+
+predicted_values_60 <- predict(lr_strata_60, newdata = test_set, type = "response")
+predicted_classes_60 <- ifelse(predicted_values_60 > 0.5, 1, 0)
+
+confusion_matrix_60 <- table(predicted_classes_60, test_set$Response)
+TP_60 <- confusion_matrix_60[2, 2]
+FP_60 <- confusion_matrix_60[2, 1]
+FN_60 <- confusion_matrix_60[1, 2]
+
+recall_60 <- TP_60 / (TP_60 + FN_60)
+precision_60 <- TP_60 / (TP_60 + FP_60)
+precision_60
+f1_score_60 <- 2 * (precision_60 * recall_60) / (precision_60 + recall_60)
+f1_score_60
+roc_strata_60 <- roc(test_set$Response, predicted_values_60 )
+
+
+
+## Stratified 10%
+
+set.seed(123) # For reproducibility
+
+# Randomly sample from strata1
+sample1_80 <- data_strata1[sample(nrow(data_strata1), size = round(nrow(data) * 0.10* 0.8)), ]
+
+# Randomly sample from strata2
+sample2_80 <- data_strata2[sample(nrow(data_strata2), size = round(nrow(data) * 0.10* 0.2)), ]
+
+strata_sample_80 <- rbind(sample1_80, sample2_80)
+
+# Build model
+
+lr_strata_80 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = strata_sample_80, family = binomial())
+
+predicted_values_80 <- predict(lr_strata_80, newdata = test_set, type = "response")
+predicted_classes_80 <- ifelse(predicted_values_80 > 0.5, 1, 0)
+
+confusion_matrix_80 <- table(predicted_classes_80, test_set$Response)
+TP_80 <- confusion_matrix_80[2, 2]
+FP_80 <- confusion_matrix_80[2, 1]
+FN_80 <- confusion_matrix_80[1, 2]
+
+recall_80 <- TP_80 / (TP_80 + FN_80)
+precision_80 <- TP_80 / (TP_80 + FP_80)
+precision_80
+f1_score_80 <- 2 * (precision_80 * recall_80) / (precision_80 + recall_80)
+f1_score_80
+roc_strata_80 <- roc(test_set$Response, predicted_values_80 )
+
+## Stratified 90%
+
+
+
+f1_scores_stratified <- c(f1_score_20, f1_score_40, f1_score_60, f1_score_80)
+precision_stratified <- c(precision_20, precision_40, precision_60, precision_80)
+auc_stratified <- c(auc(roc_strata_20), auc(roc_strata_40), auc(roc_strata_60), auc(roc_strata_80))
+
+
+```
+
+```{r}
+# Assume models are model1, model2, model3
+
+coefficients2 <- coef(lr_strata_20)
+coefficients4 <- coef(lr_strata_40)
+coefficients6 <- coef(lr_strata_60)
+coefficients8 <- coef(lr_strata_80)
+coefficients10 <- coef(logistic_model) # true value
+
+
+num_coefs1 <- length(coefficients1)
+num_coefs2 <- length(coefficients2)
+num_coefs3 <- length(coefficients3)
+num_coefs4 <- length(coefficients4)
+num_coefs5 <- length(coefficients5)
+num_coefs6 <- length(coefficients6)
+num_coefs7 <- length(coefficients7)
+num_coefs8 <- length(coefficients8)
+num_coefs9 <- length(coefficients9)
+num_coefs10 <- length(coefficients10)
+max_coefs <- max(num_coefs1, num_coefs2, num_coefs3, num_coefs4, num_coefs5,num_coefs6,num_coefs7,num_coefs8,num_coefs9 ,num_coefs10)
+# Make sure each vector has the maximum length by appending NAs if necessary
+coefficients1 <- c(coefficients1, rep(NA, max_coefs - num_coefs1))
+coefficients2 <- c(coefficients2, rep(NA, max_coefs - num_coefs2))
+coefficients3 <- c(coefficients3, rep(NA, max_coefs - num_coefs3))
+coefficients4 <- c(coefficients4, rep(NA, max_coefs - num_coefs4))
+coefficients5 <- c(coefficients5, rep(NA, max_coefs - num_coefs5))
+coefficients6 <- c(coefficients6, rep(NA, max_coefs - num_coefs6))
+coefficients7 <- c(coefficients7, rep(NA, max_coefs - num_coefs7))
+coefficients8 <- c(coefficients8, rep(NA, max_coefs - num_coefs8))
+coefficients9 <- c(coefficients9, rep(NA, max_coefs - num_coefs9))
+coefficients10 <- c(coefficients10, rep(NA, max_coefs - num_coefs10))
+
+
+
+# Combine the coefficients into a data frame
+# Combine the coefficients into a data frame
+coefficients <- data.frame(
+  Model = rep(c("Model 1%", "Model 2%", "Model 5%","Model 10%", "FULL Model"), each = length(coefficient2)),
+  Predictor = rep(names(coefficient2), 5),
+  Coefficient = c(coefficient2, coefficient4, coefficient6,coefficient8, coefficient10)
+)
+
+
+
+coefficients$Model <- factor(coefficients$Model, levels = c("Model 1%", "Model 2%", "Model 5%", "Model 10%", "FULL Model"))
+library(ggplot2)
+
+coe_strata <- ggplot(coefficients, aes(x = Predictor, y = abs(Coefficient), fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = "Predictor", y = "Coefficient", fill = "Model",
+       title = "Comparison of Stratified Sample Model Estimates") +
+  scale_y_log10() 
+coe_strata
+
+coefficients$Difference <- coefficients$Coefficient - coefficient10
+coefficients
+
+coefficients <- coefficients[coefficients$Predictor != "(Intercept)", ]
+coefficients <- coefficients[coefficients$Model != "FULL Model", ]
+
+coe_difference_facet <- ggplot(coefficients, aes(x = Model, y = Difference, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = "Predictor", y = "Difference from Full Model", fill = "Model",
+       title = "Difference in Coefficients of Stratified Sampling from Full Model") +
+  facet_wrap(~ Predictor, scales = "free_y")
+
+coe_difference_facet
+
+```
+
+**random sampling**
+```{r}
+# Random 10
+set.seed(123) # For reproducibility
+
+# Calculate 10% of the total number of observations
+sample_size_10 <- round(nrow(data) * 0.010)
+random_sample_10 <- data[sample(nrow(data), size = sample_size_10), ]
+
+lr_random_10 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_10, family = binomial())
+
+# Random 20  !!
+set.seed(123) # For reproducibility
+sample_size_20 <- round(nrow(data) * 0.010)
+random_sample_20 <- data[sample(nrow(data), size = sample_size_20), ]
+lr_random_20 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_20, family = binomial())
+
+predicted_values_20 <- predict(lr_random_20, newdata = test_set, type = "response")
+predicted_classes_20 <- ifelse(predicted_values_20 > 0.5, 1, 0)
+
+confusion_matrix_20 <- table(predicted_classes_20, test_set$Response)
+TP_20 <- confusion_matrix_20[2, 2]
+FP_20 <- confusion_matrix_20[2, 1]
+FN_20 <- confusion_matrix_20[1, 2]
+
+recall_20 <- TP_20 / (TP_20 + FN_20)
+precision_20 <- TP_20 / (TP_20 + FP_20)
+precision_20
+f1_score_20 <- 2 * (precision_20 * recall_20) / (precision_20 + recall_20)
+f1_score_20
+library(pROC)
+
+roc_random_20 <- roc(test_set$Response, predicted_values_20 )
+
+# Random 30
+set.seed(123) # For reproducibility
+sample_size_30 <- round(nrow(data) * 0.050)
+random_sample_30 <- data[sample(nrow(data), size = sample_size_30), ]
+lr_random_30 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_30, family = binomial())
+
+# Random 40 !!
+set.seed(123) # For reproducibility
+sample_size_40 <- round(nrow(data) * 0.020)
+random_sample_40 <- data[sample(nrow(data), size = sample_size_40), ]
+lr_random_40 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_40, family = binomial())
+
+predicted_values_40 <- predict(lr_random_40, newdata = test_set, type = "response")
+predicted_classes_40 <- ifelse(predicted_values_40 > 0.5, 1, 0)
+
+confusion_matrix_40 <- table(predicted_classes_40, test_set$Response)
+TP_40 <- confusion_matrix_40[2, 2]
+FP_40 <- confusion_matrix_40[2, 1]
+FN_40 <- confusion_matrix_40[1, 2]
+
+recall_40 <- TP_40 / (TP_40 + FN_40)
+precision_40 <- TP_40 / (TP_40 + FP_40)
+precision_40
+f1_score_40 <- 2 * (precision_40 * recall_40) / (precision_40 + recall_40)
+f1_score_40
+roc_random_40 <- roc(test_set$Response, predicted_values_40 )
+
+
+# Random 50
+set.seed(123) # For reproducibility
+sample_size_50 <- round(nrow(data) * 0.50)
+random_sample_50 <- data[sample(nrow(data), size = sample_size_50), ]
+lr_random_50 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_50, family = binomial())
+
+# Random 60
+set.seed(123) # For reproducibility
+sample_size_60 <- round(nrow(data) * 0.050)
+random_sample_60 <- data[sample(nrow(data), size = sample_size_60), ]
+lr_random_60 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_60, family = binomial())
+
+predicted_values_60 <- predict(lr_random_60, newdata = test_set, type = "response")
+predicted_classes_60 <- ifelse(predicted_values_60 > 0.5, 1, 0)
+
+confusion_matrix_60 <- table(predicted_classes_60, test_set$Response)
+TP_60 <- confusion_matrix_60[2, 2]
+FP_60 <- confusion_matrix_60[2, 1]
+FN_60 <- confusion_matrix_60[1, 2]
+
+recall_60 <- TP_60 / (TP_60 + FN_60)
+precision_60 <- TP_60 / (TP_60 + FP_60)
+precision_60
+f1_score_60 <- 2 * (precision_60 * recall_60) / (precision_60 + recall_60)
+f1_score_60
+roc_random_60 <- roc(test_set$Response, predicted_values_60 )
+
+# Random 70
+set.seed(123) # For reproducibility
+sample_size_70 <- round(nrow(data) * 0.70)
+random_sample_70 <- data[sample(nrow(data), size = sample_size_70), ]
+lr_random_70 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_70, family = binomial())
+
+# Random 80
+set.seed(123) # For reproducibility
+sample_size_80 <- round(nrow(data) * 0.10)
+random_sample_80 <- data[sample(nrow(data), size = sample_size_80), ]
+lr_random_80 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_80, family = binomial())
+
+predicted_values_80 <- predict(lr_random_80, newdata = test_set, type = "response")
+predicted_classes_80 <- ifelse(predicted_values_80 > 0.5, 1, 0)
+
+confusion_matrix_80 <- table(predicted_classes_80, test_set$Response)
+TP_80 <- confusion_matrix_80[2, 2]
+FP_80 <- confusion_matrix_80[2, 1]
+FN_80 <- confusion_matrix_80[1, 2]
+
+recall_80 <- TP_80 / (TP_80 + FN_80)
+precision_80 <- TP_80 / (TP_80 + FP_80)
+precision_80
+f1_score_80 <- 2 * (precision_80 * recall_80) / (precision_80 + recall_80)
+f1_score_80
+roc_random_80 <- roc(test_set$Response, predicted_values_80 )
+
+# Random 90
+set.seed(123) # For reproducibility
+sample_size_90 <- round(nrow(data) * 0.90)
+random_sample_90 <- data[sample(nrow(data), size = sample_size_90), ]
+lr_random_90 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = random_sample_90, family = binomial())
+
+f1_scores_random <- c(f1_score_20, f1_score_40, f1_score_60, f1_score_80)
+precision_random <- c(precision_20, precision_40, precision_60, precision_80)
+auc_random <- c(auc(roc_random_20), auc(roc_random_40), auc(roc_random_60), auc(roc_random_80))
+
+```
+```{r}
+## Plot ROC
+plot(roc_full, main = "ROC Curves for Different Random Sample Sizes ")
+lines(roc_random_40, col = "lightpink")
+lines(roc_random_60, col = "lightblue")
+lines(roc_random_80, col = "lightgreen")
+lines(roc_random_20, col = "lightyellow")
+legend("bottomright", legend = c("100%", "40%", "60%", "80%","20%"), 
+       col = c("black", "red", "blue", "green", "yellow"), lty = 1)
+
+
+
+# outlier
+boxplot(random_sample_20$Total_spent)
+boxplot(random_sample_40$Total_spent)
+boxplot(random_sample_60$Total_spent)
+boxplot(random_sample_80$Total_spent)
+
+
+
+
+```
+
+**Reasons**
+```{r}
+analyze_distribution <- function(data) {
+  table(data$Response) / nrow(data) * 100
+}
+
+## Random
+dist_10 <- analyze_distribution(random_sample_20)
+dist_25 <- analyze_distribution(random_sample_40)
+dist_50 <- analyze_distribution(random_sample_60)
+dist_80 <- analyze_distribution(random_sample_80)
+dist_100 <- analyze_distribution(data)
+
+
+barplot(rbind(dist_10, dist_25, dist_50, dist_80, dist_100),
+        beside = TRUE,
+        col = c("lightblue", "lightpink"),
+        legend.text = c("Failure (0)", "Success (1)"),
+        #names.arg = c("20%", "40%", "60%", "80%", "100%"),
+        xlab = "Sample Size",
+        ylab = "Percentage",
+        main = "Distribution of Response Variable Across Sample Sizes")
+##一致
+
+
+```
+
+```{r}
+# 
+coefficient1 <- coef(lr_random_10)
+coefficient2 <- coef(lr_random_20)
+coefficient3 <- coef(lr_random_30)
+coefficient4 <- coef(lr_random_40)
+coefficient5 <- coef(lr_random_50)
+coefficient6 <- coef(lr_random_60)
+coefficient7 <- coef(lr_random_70)
+coefficient8 <- coef(lr_random_80)
+coefficient9 <- coef(lr_random_90)
+coefficient10 <- coef(logistic_model) # true value
+
+
+num_coef1 <- length(coefficient1)
+num_coef2 <- length(coefficient2)
+num_coef3 <- length(coefficient3)
+num_coef4 <- length(coefficient4)
+num_coef5 <- length(coefficient5)
+num_coef6 <- length(coefficient6)
+num_coef7 <- length(coefficient7)
+num_coef8 <- length(coefficient8)
+num_coef9 <- length(coefficient9)
+num_coef10 <- length(coefficient10)
+max_coef <- max(num_coef1, num_coef2, num_coef3, num_coef4, num_coef5,num_coef6,num_coef7,num_coef8,num_coef9 ,num_coef10)
+# Make sure each vector has the maximum length by appending NAs if necessary
+coefficient1 <- c(coefficient1, rep(NA, max_coef - num_coef1))
+coefficient2 <- c(coefficient2, rep(NA, max_coef - num_coef2))
+coefficient3 <- c(coefficient3, rep(NA, max_coef - num_coef3))
+coefficient4 <- c(coefficient4, rep(NA, max_coef - num_coef4))
+coefficient5 <- c(coefficient5, rep(NA, max_coef - num_coef5))
+coefficient6 <- c(coefficient6, rep(NA, max_coef - num_coef6))
+coefficient7 <- c(coefficient7, rep(NA, max_coef - num_coef7))
+coefficient8 <- c(coefficient8, rep(NA, max_coef - num_coef8))
+coefficient9 <- c(coefficient9, rep(NA, max_coef - num_coef9))
+coefficient10 <- c(coefficient10, rep(NA, max_coefs - num_coef10))
+
+
+
+# Combine the coefficients into a data frame
+coefficients <- data.frame(
+  Model = rep(c("Model 1%", "Model 2%", "Model 5%","Model 10%", "FULL Model"), each = length(coefficient2)),
+  Predictor = rep(names(coefficient2), 5),
+  Coefficient = c(coefficient2, coefficient4, coefficient6,coefficient8, coefficient10)
+)
+
+
+
+library(ggplot2)
+# change coefs to abs number to compare
+# Convert Model to ordered factor
+coefficients$Model <- factor(coefficients$Model, levels = c("Model 1%", "Model 2%", "Model 5%", "Model 10%", "FULL Model"))
+coefficients
+
+coe_random <- ggplot(coefficients, aes(x = Predictor, y = abs(Coefficient), fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = "Predictor", y = "Coefficient", fill = "Model",
+       title = "Comparison of Random Sample Model Estimates") +
+  scale_y_log10() 
+
+# Compute difference with Full Model
+coefficients$Difference <- coefficients$Coefficient - coefficient10
+coefficients
+
+coefficients <- coefficients[coefficients$Predictor != "(Intercept)", ]
+coefficients <- coefficients[coefficients$Model != "FULL Model", ]
+
+coe_difference_facet <- ggplot(coefficients, aes(x = Model, y = Difference, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = "Predictor", y = "Difference from Full Model", fill = "Model",
+       title = "Difference in Coefficients of Random Sampling from Full Model") +
+  facet_wrap(~ Predictor, scales = "free_y")
+
+coe_random
+coe_difference_facet
+```
+```{r}
+precision_weight_data <- data.frame(Model = c("Model 100", "Model 500", "Model 1000", "Model 1500", "Model 2000"), Precision = c(precision_100, precision_500, precision_1000, precision_1500, precision_2000))
+ggplot(precision_weight_data, aes(x = Model, y = Precision)) + geom_bar(stat = "identity") + ylim(0, 1)
+
+```
+
+**Importance sampling**
+
+```{r}
+
+## start with size 1%
+# Create a probability vector based on the total_spent variable
+weights <- data$Total_spent / sum(data$Total_spent)
+# Sample the rows based on the weights
+set.seed(123) # For reproducibility
+sample_index <- sample(1:nrow(data), size = round(nrow(data) * 0.01), prob = weights)
+sample_data_100 <- data[sample_index,]
+lr_weight_100 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = sample_data_100, family = binomial())
+
+
+# Assess the performance
+predicted_values_100 <- predict(lr_weight_100, newdata = test_set, type = "response")
+predicted_classes_100 <- ifelse(predicted_values_100 > 0.5, 1, 0)
+
+confusion_matrix_100 <- table(predicted_classes_100, test_set$Response)
+TP_100 <- confusion_matrix_100[2, 2]
+FP_100 <- confusion_matrix_100[2, 1]
+FN_100 <- confusion_matrix_100[1, 2]
+
+precision_100 <- TP_100 / (TP_100 + FP_100)
+recall_100 <- TP_100 / (TP_100 + FN_100)
+
+f1_score_100 <- 2 * (precision_100 * recall_100) / (precision_100 + recall_100)
+
+precision_100
+f1_score_100
+roc_weight_100 <- roc(test_set$Response, predicted_values_100 )
+
+
+# Investigate reasons
+
+```
+
+```{r}
+## Then moderate size 500, 1000, 1500
+
+# Create a probability vector based on the total_spent variable
+weights <- data$Total_spent / sum(data$Total_spent)
+# Sample the rows based on the weights
+set.seed(123) # For reproducibility
+sample_index <- sample(1:nrow(data), size = round(nrow(data) * 0.020), prob = weights)
+sample_data_500 <- data[sample_index,]
+
+lr_weight_500 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = sample_data_500, family = binomial())
+
+predicted_values_500 <- predict(lr_weight_500, newdata = test_set, type = "response")
+predicted_classes_500 <- ifelse(predicted_values_500 > 0.5, 1, 0)
+
+confusion_matrix_500 <- table(predicted_classes_500, test_set$Response)
+TP_500 <- confusion_matrix_500[2, 2]
+FP_500 <- confusion_matrix_500[2, 1]
+FN_500 <- confusion_matrix_500[1, 2]
+
+recall_500 <- TP_500 / (TP_500 + FN_500)
+precision_500 <- TP_500 / (TP_500 + FP_500)
+f1_score_500 <- 2 * (precision_500 * recall_500) / (precision_500 + recall_500)
+
+precision_500
+
+f1_score_500
+roc_weight_500 <- roc(test_set$Response, predicted_values_500 )
+
+# Create a probability vector based on the total_spent variable
+weights <- data$Total_spent / sum(data$Total_spent)
+# Sample the rows based on the weights
+set.seed(123) # For reproducibility
+sample_index <- sample(1:nrow(data), size = round(nrow(data) * 0.050), prob = weights)
+sample_data_1000 <- data[sample_index,]
+
+lr_weight_1000 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = sample_data_1000, family = binomial())
+
+predicted_values_1000 <- predict(lr_weight_1000, newdata = test_set, type = "response")
+predicted_classes_1000 <- ifelse(predicted_values_1000 > 0.5, 1, 0)
+
+confusion_matrix_1000 <- table(predicted_classes_100, test_set$Response)
+TP_1000 <- confusion_matrix_1000[2, 2]
+FP_1000 <- confusion_matrix_1000[2, 1]
+FN_1000 <- confusion_matrix_1000[1, 2]
+
+recall_1000 <- TP_1000 / (TP_1000 + FN_1000)
+precision_1000 <- TP_1000 / (TP_1000 + FP_1000)
+precision_1000
+f1_score_1000 <- 2 * (precision_1000 * recall_1000) / (precision_1000 + recall_1000)
+f1_score_1000
+roc_weight_1000 <- roc(test_set$Response, predicted_values_1000 )
+
+# Create a probability vector based on the total_spent variable
+weights <- data$Total_spent / sum(data$Total_spent)
+# Sample the rows based on the weights
+set.seed(123) # For reproducibility
+sample_index <- sample(1:nrow(data), size = round(nrow(data) * 0.10), prob = weights)
+sample_data_1500 <- data[sample_index,]
+
+lr_weight_1500 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = sample_data_1500, family = binomial())
+
+predicted_values_1500 <- predict(lr_weight_1500, newdata = test_set, type = "response")
+predicted_classes_1500 <- ifelse(predicted_values_1500 > 0.5, 1, 0)
+
+confusion_matrix_1500 <- table(predicted_classes_1500, test_set$Response)
+TP_1500 <- confusion_matrix_1500[2, 2]
+FP_1500 <- confusion_matrix_1500[2, 1]
+FN_1500 <- confusion_matrix_1500[1, 2]
+
+recall_1500 <- TP_1500 / (TP_1500 + FN_1500)
+precision_1500 <- TP_1500 / (TP_1500 + FP_1500)
+precision_1500
+f1_score_1500 <- 2 * (precision_1500 * recall_1500) / (precision_1500 + recall_1500)
+f1_score_1500
+roc_weight_1500 <- roc(test_set$Response, predicted_values_1500 )
+
+```
+
+
+```{r}
+
+## full set
+# Create a probability vector based on the total_spent variable
+weights <- data$Total_spent / sum(data$Total_spent)
+# Sample the rows based on the weights
+# set.seed(123) # For reproducibility
+# sample_index <- sample(1:nrow(data), size = 2000, prob = weights)
+# sample_data_2000 <- data[sample_index,]
+# 
+# lr_weight_2000 <- glm(Response ~ Total_spent + Income + Recency + MntGoldProds + NumStorePurchases, data = sample_data_2000, family = binomial())
+# 
+# predicted_values_2000 <- predict(lr_weight_2000, newdata = test_set, type = "response")
+# predicted_classes_2000 <- ifelse(predicted_values_2000 > 0.5, 1, 0)
+# 
+# confusion_matrix_2000 <- table(predicted_classes_2000, test_set$Response)
+# TP_2000 <- confusion_matrix_2000[2, 2]
+# FP_2000 <- confusion_matrix_2000[2, 1]
+# FN_2000 <- confusion_matrix_2000[1, 2]
+# 
+# recall_2000 <- TP_2000 / (TP_2000 + FN_2000)
+# precision_2000 <- TP_2000 / (TP_2000 + FP_2000)
+# precision_2000
+# f1_score_2000 <- 2 * (precision_2000 * recall_2000) / (precision_2000 + recall_2000)
+# f1_score_2000
+# roc_weight_2000 <- roc(test_set$Response, predicted_values_2000)
+
+f1_scores_weighted <- c(f1_score_100, f1_score_500, f1_score_1000, f1_score_1500)
+precision_weighted <- c(precision_100, precision_500, precision_1000, precision_1500)
+auc_weighted <- c(auc(roc_weight_100), auc(roc_weight_500), auc(roc_weight_1000), auc(roc_weight_1500))
+```
+
+
+
+```{r}
+coefficient1 <- coef(lr_weight_500)
+coefficient2 <- coef(lr_weight_1000)
+coefficient3 <- coef(lr_weight_1500)
+coefficient4 <- coef(logistic_model)
+coefficient5 <- coef(lr_weight_100)
+
+
+# Combine the coefficients into a data frame
+coefficients <- data.frame(
+  Model = rep(c("Model 2%", "Model 5%", "Model 10%","FULL Model", "Model 1%"), each = length(coefficient1)),
+  Predictor = rep(names(coefficient1), 5),
+  Coefficient = c(coefficient1, coefficient2, coefficient3, coefficient4, coefficient5)
+)
+coefficients
+
+coefficients$Model <- factor(coefficients$Model, levels = c("Model 1%", "Model 2%", "Model 5%", "Model 10%", "FULL Model"))
+library(ggplot2)
+# change coefs to abs number to compare
+
+ggplot(coefficients, aes(x = Predictor, y = abs(Coefficient), fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = "Predictor", y = "Coefficient", fill = "Model",
+       title = "Comparison of Weighted Model Coefficients")+
+  scale_y_log10()
+
+
+coefficients$Difference <- coefficients$Coefficient - coefficient4
+coefficients
+
+coefficients <- coefficients[coefficients$Predictor != "(Intercept)", ]
+coefficients <- coefficients[coefficients$Model != "FULL Model", ]
+
+coe_difference_facet <- ggplot(coefficients, aes(x = Model, y = abs(Difference), fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = "Predictor", y = "Difference from Full Model (scaled log10)", fill = "Model",
+       title = "Difference in Coefficients of Weighted Sampling from Full Model") +
+  facet_wrap(~ Predictor, scales = "free_y") +
+  scale_y_log10()
+
+coe_difference_facet
+
+```
+
+compare presicion of weighted
+```{r}
+precision_weight_data <- data.frame(Model = c("Model 1%", "Model 2%", "Model 5%", "Model 10%", "Model Full"), Precision = c(precision_100, precision_500, precision_1000, precision_1500, precision_2000))
+ggplot(precision_weight_data, aes(x = Model, y = Precision)) + geom_bar(stat = "identity") + ylim(0, 1)
+
+```
+
+
+```{r}
+f1_weight_data <- data.frame(Model = c("Model 1%", "Model 2%", "Model 5%", "Model 10%", "Model 2000"), F1_Score = c(f1_score_100, f1_score_500, f1_score_1000, f1_score_1500, f1_score_2000))
+ggplot(f1_weight_data, aes(x = Model, y = F1_Score)) + geom_bar(stat = "identity") + ylim(0, 1)
+
+
+```
+```{r}
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+
+results_random <- data.frame(
+  fraction = rep(c(0.001, 0.002, 0.005, 0.1), 3),
+  metric_value = c(f1_scores_random, precision_random, auc_random),
+  metric_type = rep(c('F1_score', 'Precision', 'AUC'), each = 4),
+  sampling_strategy = rep('Random', 12)
+)
+
+results_stratified <- data.frame(
+  fraction = rep(c(0.001, 0.002, 0.005, 0.1), 3),
+  metric_value = c(f1_scores_stratified, precision_stratified, auc_stratified),
+  metric_type = rep(c('F1_score', 'Precision', 'AUC'), each = 4),
+  sampling_strategy = rep('Stratified', 12)
+)
+
+results_weighted <- data.frame(
+  fraction = rep(c(0.001, 0.002, 0.005, 0.1), 3),
+  metric_value = c(f1_scores_weighted, precision_weighted, auc_weighted),
+  metric_type = rep(c('F1_score', 'Precision', 'AUC'), each = 4),
+  sampling_strategy = rep('Weighted', 12)
+)
+# Combining all results
+all_results <- bind_rows(results_random, results_stratified, results_weighted) # Add other dataframes if more than two sampling strategies.
+
+library(ggplot2)
+
+library(ggplot2)
+
+# For Random Sampling Strategy
+ggplot(results_random, aes(x=fraction, y=metric_value, color=metric_type, group=metric_type)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Random Sampling: Comparison of Metrics across Data Fractions", 
+       x="Fraction of Data", y="Metric Value") +
+  scale_color_manual(values=c("F1_score"="lightpink", "Precision"="lightblue", "AUC"="lightgreen")) +
+  scale_x_log10(breaks = c(0.001, 0.002, 0.005, 0.1), 
+                labels = c("0.001", "0.002", "0.005", "0.1")) + 
+   
+  theme_minimal() +
+  ylim(0.1, 0.7)  # Setting y-axis limits
+
+# For Stratified Sampling Strategy
+ggplot(results_stratified, aes(x=fraction, y=metric_value, color=metric_type, group=metric_type)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Stratified Sampling: Comparison of Metrics across Data Fractions", 
+       x="Fraction of Data", y="Metric Value") +
+  scale_color_manual(values=c("F1_score"="lightpink", "Precision"="lightblue", "AUC"="lightgreen")) +
+  scale_x_log10(breaks = c(0.001, 0.002, 0.005, 0.1), 
+                labels = c("0.001", "0.002", "0.005", "0.1")) + 
+  theme_minimal() +
+  ylim(0.1, 0.75)  # Setting y-axis limits
+
+# For Weighted Sampling Strategy
+ggplot(results_weighted, aes(x=fraction, y=metric_value, color=metric_type, group=metric_type)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Weighted Sampling: Comparison of Metrics across Data Fractions", 
+       x="Fraction of Data", y="Metric Value") +
+  scale_color_manual(values=c("F1_score"="lightpink", "Precision"="lightblue", "AUC"="lightgreen")) +
+  scale_x_log10(breaks = c(0.001, 0.002, 0.005, 0.1), 
+                labels = c("0.001", "0.002", "0.005", "0.1")) + 
+  
+  theme_minimal() +
+  ylim(0.1, 0.7)  # Setting y-axis limits
+
+results_random
+results_stratified
+```
+
+
+```{r}
+# Plotting Precision for all sampling strategies
+plot_precision <- ggplot(subset(all_results, metric_type == "Precision"), 
+                         aes(x=fraction, y=metric_value, color=sampling_strategy, group=sampling_strategy)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Comparison of Precision across Data Fractions", 
+       x="Fraction of Data", y="Precision Value") +
+  scale_color_manual(values=c("Random"="lightpink", "Stratified"="lightblue", "Weighted"="lightgreen")) +
+  scale_x_log10(breaks = c(0.001, 0.002, 0.005, 0.1), 
+                labels = c("0.01", "0.02", "0.05", "0.1")) + 
+  
+  theme_minimal() 
+  #ylim(0.5, 0.75)  # Setting y-axis limits
+
+print(plot_precision)
+
+```
+```{r}
+# Plotting F1 score for all sampling strategies
+plot_f1 <- ggplot(subset(all_results, metric_type == "F1_score"), 
+                  aes(x=fraction, y=metric_value, color=sampling_strategy, group=sampling_strategy)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Comparison of F1 Score across Data Fractions", 
+       x="Fraction of Data", y="F1 Score Value") +
+  scale_color_manual(values=c("Random"="lightpink", "Stratified"="lightblue", "Weighted"="lightgreen")) +
+  theme_minimal() +
+  scale_x_log10(breaks = c(0.001, 0.002, 0.005, 0.1), 
+                labels = c("0.01", "0.02", "0.05", "0.1")) 
+
+print(plot_f1)
+
+```
+
+```{r}
+# Plotting AUC for all sampling strategies
+plot_auc <- ggplot(subset(all_results, metric_type == "AUC"), 
+                   aes(x=fraction, y=metric_value, color=sampling_strategy, group=sampling_strategy)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Comparison of AUC across Data Fractions", 
+       x="Fraction of Data", y="AUC Value") +
+  scale_color_manual(values=c("Random"="lightpink", "Stratified"="lightblue", "Weighted"="lightgreen")) +
+  theme_minimal() +
+  scale_x_log10(breaks = c(0.001, 0.002, 0.005, 0.1), 
+                labels = c("0.01", "0.02", "0.05", "0.1")) 
+   # Setting y-axis limits
+
+print(plot_auc)
+
+```
+```{r}
+library(gridExtra)
+
+grid.arrange(coe_random, coe_strata, ncol = 2, widths = c(8, 8))
+grid.arrange(plot_precision, plot_f1,plot_auc, ncol = 3)
+
+
+```
+
